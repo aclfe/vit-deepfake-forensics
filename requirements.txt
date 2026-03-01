@@ -1,0 +1,10 @@
+transformers
+torch
+gradio
+pytorch-grad-cam
+opencv-python-headless
+pillow
+numpy
+matplotlib
+scikit-image
+scipy
