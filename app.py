@@ -73,8 +73,11 @@ def get_texture_map(image_path, radius=3, n_points=24):
 
 def get_ela(image_path, quality=90):
     img = cv2.imread(image_path)
-    cv2.imwrite('temp.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, quality])
-    temp_img = cv2.imread('temp.jpg')
+    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+        tmp_path = f.name
+    cv2.imwrite(tmp_path, img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    temp_img = cv2.imread(tmp_path)
+    os.unlink(tmp_path)
     ela = cv2.absdiff(img, temp_img)
     ela_gray = cv2.cvtColor(ela, cv2.COLOR_BGR2GRAY)
     ela_norm = ela_gray / 255.0
@@ -114,34 +117,49 @@ def verify_image(image_path):
 - Noise analysis: inconsistency score {noise_score:.3f} (low entropy at blends indicates swaps)
 - Texture analysis: edge inconsistency {texture_score:.3f} (non-uniform noise suggests manipulation)
 - Hybrid score fuses neural DL (primary) + calibrated forensics (2025 best practice for robustness)"""
-    return label, conf_pct, explanation, Image.fromarray(cam_overlay), Image.fromarray(ela_map * 255).convert("RGB"), Image.fromarray(noise_map * 255).convert("RGB"), Image.fromarray(texture_map * 255).convert("RGB")
+    return label, conf_pct, explanation, Image.fromarray(cam_overlay), Image.fromarray(np.clip(ela_map * 255 * 15, 0, 255).astype(np.uint8)).convert("RGB"), Image.fromarray(noise_map * 255).convert("RGB"), Image.fromarray(texture_map * 255).convert("RGB")
 
 def detect(image_path):
     if image_path is None:
         return "Upload an image", 0, "", None, None, None, None
     return verify_image(image_path)
 
-iface = gr.Interface(
-    fn=detect,
-    inputs=gr.Image(type="filepath", label="Upload Image"),
-    outputs=[
-        gr.Textbox(label="Label"),
-        gr.Textbox(label="Confidence (%)"),
-        gr.Textbox(label="Explanation"),
-        gr.Image(label="Grad-CAM (XAI)"),
-        gr.Image(label="ELA Map"),
-        gr.Image(label="Noise Map"),
-        gr.Image(label="Texture Map")
-    ],
-    title="Robust Synthetic Media Authenticity Verifier with OpenFake",
-    description="Upload an image for hybrid deepfake detection (ViT DL + forensics). Trained on 160k+ images (140k + 2025 OpenFake).",
-    examples=[
-        "https://raw.githubusercontent.com/aclfe/vit-deepfake-forensics/main/images/fake_00020.jpg",
-        "https://raw.githubusercontent.com/aclfe/vit-deepfake-forensics/main/images/fake_00174.jpg",
-        "https://raw.githubusercontent.com/aclfe/vit-deepfake-forensics/main/images/real_00001.jpg",
-        "https://raw.githubusercontent.com/aclfe/vit-deepfake-forensics/main/images/real_00013.jpg"
-    ],
-    cache_examples=True
-)
+
+with gr.Blocks(css=".gradio-container { max-width: 900px !important; margin: auto; }") as iface:
+    gr.Markdown("""
+    ## Robust Synthetic Media Authenticity Verifier with OpenFake
+    Upload an image for hybrid deepfake detection (ViT DL + forensics). Trained on 160k+ images (140k + 2025 OpenFake).
+    """)
+    
+    with gr.Row():
+        with gr.Column(scale=1):
+            image_input = gr.Image(type="filepath", label="Upload Image")
+            submit_btn = gr.Button("Analyze", variant="primary")
+        with gr.Column(scale=1):
+            label_out = gr.Textbox(label="Label")
+            conf_out = gr.Textbox(label="Confidence (%)")
+            explanation_out = gr.Textbox(label="Explanation", lines=5)
+
+    with gr.Row():
+        cam_out = gr.Image(label="Grad-CAM (XAI)", height=280)
+        ela_out = gr.Image(label="ELA Map", height=280)
+        noise_out = gr.Image(label="Noise Map", height=280)
+        texture_out = gr.Image(label="Texture Map", height=280)
+
+    gr.Examples(
+        examples=[
+            "https://raw.githubusercontent.com/aclfe/vit-deepfake-forensics/main/images/fake_00020.jpg",
+            "https://raw.githubusercontent.com/aclfe/vit-deepfake-forensics/main/images/real_00001.jpg",
+            "https://raw.githubusercontent.com/aclfe/vit-deepfake-forensics/main/images/real_00013.jpg"
+        ],
+        inputs=image_input,
+        label="Example Images"
+    )
+
+    submit_btn.click(
+        fn=detect,
+        inputs=image_input,
+        outputs=[label_out, conf_out, explanation_out, cam_out, ela_out, noise_out, texture_out]
+    )
 
 iface.launch(share=True)
